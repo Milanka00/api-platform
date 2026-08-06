@@ -167,7 +167,7 @@ eks_generated_values_path() {
     echo "${EKS_DIR}/.generated-values.yaml"
 }
 
-# Build optional runtime extraEnv lines (GOGC/GOMEMLIMIT only when set — off in docker-compose.perf.yaml).
+# Build runtime extraEnv lines (GOGC / GOMEMLIMIT when set — Jenkins defaults both on).
 eks_runtime_extra_env_yaml() {
     if [[ -n "${GOGC:-}" ]]; then
         echo "        - name: GOGC"

@@ -18,10 +18,13 @@
 #     Infra heaps/engines (-n/-m/-j/-k/-l/-r) are set by this script, not RUN_PERF_OPTS.
 #
 # === Optional Jenkins env (script sources) ===
-#   PERF_SCRIPTS   repo@branch:subdir
-#       default: https://github.com/wso2/api-platform.git@main:gateway/perf/performance-test-scripts
+#   PERF_SCRIPTS   repo@branch:subdir  (sparse-clones performance-test-scripts)
+#       Set explicitly in Jenkins; script has a fallback default.
 #   PERF_COMMON_REPO / PERF_COMMON_BRANCH
-#       default: performance-common fork used for jtl-splitter
+#       performance-common repo used to build jtl-splitter
+#
+# This directory (api-gateway-eks-perf) stays on the Jenkins slave.
+# Scenario/API/JMX changes go in performance-test-scripts (see that README).
 #
 # === Pre-placed on Jenkins slave (one-time setup) ===
 #   ~/keys/apim-perf-test3.pem        EC2 SSH key (pem file)
@@ -110,7 +113,8 @@ PERF_COMMON_BRANCH="${PERF_COMMON_BRANCH:-470-ai-api-perf}"
 # API Gateway EKS JMeter scripts: single Jenkins param PERF_SCRIPTS=repo@branch:subdir
 # (SSH remotes like git@host:org/repo.git@branch:subdir are supported — last @ / last : win.)
 # Accept PERF_SCRIPT (singular) as an alias — common Jenkins naming slip.
-# Defaults to the fork until gateway/perf/performance-test-scripts is merged into wso2/api-platform.
+# Default points at the working fork until this pack is on wso2/api-platform@main.
+# Prefer setting PERF_SCRIPTS explicitly in the Jenkins job.
 PERF_SCRIPTS="${PERF_SCRIPTS:-${PERF_SCRIPT:-https://github.com/Milanka00/api-platform.git@main:gateway/perf/performance-test-scripts}}"
 PERF_SCRIPTS_SUBDIR="${PERF_SCRIPTS##*:}"
 _perf_scripts_rest="${PERF_SCRIPTS%:*}"

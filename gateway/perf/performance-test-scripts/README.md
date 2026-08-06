@@ -1,7 +1,7 @@
-# performance-test-scripts — API Gateway EKS performance scripts
+# Performance-test-scripts — API Gateway EKS performance scripts
 
 Minimal scripts for **Jenkins API Gateway EKS** performance tests.
-Lives in the public `api-platform` repo under `gateway/perf/performance-test-scripts/`.
+
 
 Supports the following RestApis and scenarios:
 
@@ -12,26 +12,6 @@ Supports the following RestApis and scenarios:
 | `perf-api-jwt` | jwt-auth | `api_api_jwt_get` | `/api-jwt/1.0.0/chat/completions` |
 
 Each RestApi is deployed with `-r 8` (16 operations: GET+POST × 8 paths). JMeter randomizes among the same 8 path suffixes via `resourceSuffixes=,/r1,...,/r7`.
-
----
-
-## Public-repo checklist (before opening a PR)
-
-**Safe to commit:** `api-gateway/`, `jmeter/`, `lib/`, `common.env.example`, `README.md`, `.gitignore`.
-
-**Never commit:**
-
-| Path | Why |
-|------|-----|
-| `env.eks`, `jmeter/env.jmeter*`, `.generated-values.yaml` | Generated per run (gitignored) |
-| `*-perf-test-results/`, `api_ids.csv` | Result dumps / environment-specific IDs |
-| Real Asgardeo tenant URLs / OAuth secrets | Use `YOUR_TENANT` placeholders + Jenkins env |
-
-The legacy files in the parent `gateway/perf/` directory (`*-perf-test-results/`, `api_ids.csv`, `create_apis_and_capture_stats.sh`, `weather_perf_random_50.jmx`) are outside this pack and are not fetched by the sparse clone.
-
-`config.perf-overlay.toml` uses `admin`/`admin` for the **perf-only** controller basic auth and `YOUR_TENANT` in the jwt-auth issuer/JWKS URLs.
-
-`YOUR_TENANT` is substituted at install time by `eks-common.sh` from `JWT_TENANT`, or derived from `JWT_OAUTH_TOKEN_URL` (the app that mints `jwt-tokens.csv`). If neither is set the placeholder stays and **every `api_api_jwt_get` request returns 401** — the install logs a warning in that case.
 
 ---
 
@@ -70,6 +50,8 @@ product-performance-test/              # PERF_ROOT
 | `RUN_PERF_OPTS` | `-u 1000 -b 1 -s 0 -d 900 -w 180 -i api_api_plain_get` | **Load/scenario only** (see below) |
 | `GATEWAY_HELM_CHART_VERSION` | `1.2.0-rc` | Pin in Jenkins; see Helm upgrades below |
 | `GATEWAY_NODE_INSTANCE_TYPE` | `c5.2xlarge` | One node ≈ one 4-CPU runtime pod |
+| `ROUTER_CONCURRENCY` | `4` | Runtime Envoy/router concurrency (default 4) |
+| `GOMAXPROCS` | `4` | Go max procs (default 4; keep ≤ CPU limit) |
 | `JWT_OAUTH_*` | Asgardeo client creds | Required for JWT token mint; `JWT_OAUTH_TOKEN_URL` also sets the gateway's JWT issuer |
 
 ### `RUN_PERF_OPTS` (configure these)
@@ -86,28 +68,11 @@ product-performance-test/              # PERF_ROOT
 
 Scenarios: `api_api_plain_get`, `api_api_header_get`, `api_api_jwt_get`.
 
-Do **not** put `-n/-m/-j/-k/-l/-r` in `RUN_PERF_OPTS` — the orchestrator sets those:
-
-| Env (optional override) | Default | Role |
-|-------------------------|---------|------|
-| (fixed) `-n` | `2` | JMeter servers |
-| `PERF_HEAP_LABEL` | `16G` | results path label only |
-| `JMETER_SERVER_HEAP` | `4G` | `-j` |
-| `JMETER_CLIENT_HEAP` | `2G` | `-k` (use 2G on c5.xlarge) |
-| `NETTY_SERVICE_HEAP` | `4G` | `-l` |
-| `RESPONSE_SIZE_BYTES` | `1` | `-r` (tiny echo body) |
-
 Example multi-user / multi-scenario:
 
 ```text
 -u 500 -u 1000 -b 1 -s 0 -d 900 -w 180 -i api_api_plain_get -i api_api_header_get
 ```
-
-### `summary.csv` columns
-
-Only these are written (GC / SAR / heap / message-size / label columns are dropped):
-
-`Scenario Name`, `Concurrent Users`, `Throughput (Requests/sec)`, `Average Response Time (ms)`, `# Samples`, `Error Count`, `Error %`, `Average Users in the System`, `Standard Deviation of Response Time (ms)`, `Minimum Response Time (ms)`, `Maximum Response Time (ms)`, percentiles (75/90/95/98/99/99.9), `Received (KB/sec)`, `Sent (KB/sec)`.
 
 ---
 
@@ -120,13 +85,12 @@ Jenkins writes `performance-test-scripts/api-gateway/eks/env.eks` each run from
 export GATEWAY_RUNTIME_REPLICAS="${GATEWAY_RUNTIME_REPLICAS:-1}"
 export GATEWAY_RUNTIME_CPU_LIMIT="4"
 export GATEWAY_RUNTIME_MEM_LIMIT="2Gi"
-export ROUTER_CONCURRENCY="4"
-export GOMAXPROCS="4"
+export ROUTER_CONCURRENCY="${ROUTER_CONCURRENCY:-4}"
+export GOMAXPROCS="${GOMAXPROCS:-4}"
+export GOGC="${GOGC:-400}"
+export GOMEMLIMIT="${GOMEMLIMIT:-1500MiB}"
 export LOG_LEVEL="error"
 export POLICY_ENGINE_METRICS_ENABLED="false"
-# optional:
-# export GOGC="200"
-# export GOMEMLIMIT="1400MiB"
 ```
 
 Flow: `env.eks` → `install-gateway.sh` → `eks-common.sh` → `.generated-values.yaml` → Helm → live Deployment.
@@ -212,8 +176,3 @@ curl -sf "http://${NLB_HOST}:8080/api-plain/1.0.0/chat/completions" -o /dev/null
 | `jmeter/generate-jwt-tokens.sh` | Asgardeo OAuth → `jwt-tokens.csv` |
 | `jmeter/*.jmx` | JMeter test plans |
 
----
-
-## Not included
-
-AI gateway, EC2 docker-compose, dual-gateway, route-scale APIs, fetch-artifacts, docs from the full manual tree.
