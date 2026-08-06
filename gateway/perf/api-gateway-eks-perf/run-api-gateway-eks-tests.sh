@@ -18,13 +18,20 @@
 #     Infra heaps/engines (-n/-m/-j/-k/-l/-r) are set by this script, not RUN_PERF_OPTS.
 #
 # === Optional Jenkins env (script sources) ===
-#   PERF_SCRIPTS   repo@branch:subdir  (sparse-clones performance-test-scripts)
-#       Set explicitly in Jenkins; script has a fallback default.
+#   PERF_SCRIPTS   repo@branch:subdir
+#       default: https://github.com/Milanka00/api-platform.git@main:gateway/perf/performance-test-scripts
 #   PERF_COMMON_REPO / PERF_COMMON_BRANCH
-#       performance-common repo used to build jtl-splitter
-#
-# This directory (api-gateway-eks-perf) stays on the Jenkins slave.
-# Scenario/API/JMX changes go in performance-test-scripts (see that README).
+#       default: performance-common fork used for jtl-splitter
+#   ROUTER_CONCURRENCY / GOMAXPROCS
+#       default: 4 / 4  (runtime pod concurrency; keep ≤ GATEWAY_RUNTIME_CPU_LIMIT)
+#   GOGC / GOMEMLIMIT
+#       default: 400 / 1500MiB
+#   PUBLISH_RESULTS_PR
+#       default: 0 (skip). Set to 1 to open a PR appending summary.csv into RESULTS_PR_README
+#   GH_TOKEN
+#       required only when PUBLISH_RESULTS_PR=1 (PAT with repo + PR access)
+#   RESULTS_PR_REPO / RESULTS_PR_BASE / RESULTS_PR_README
+#       defaults: Milanka00/api-platform @ main : gateway/perf/README.md
 #
 # === Pre-placed on Jenkins slave (one-time setup) ===
 #   ~/keys/apim-perf-test3.pem        EC2 SSH key (pem file)
@@ -113,8 +120,7 @@ PERF_COMMON_BRANCH="${PERF_COMMON_BRANCH:-470-ai-api-perf}"
 # API Gateway EKS JMeter scripts: single Jenkins param PERF_SCRIPTS=repo@branch:subdir
 # (SSH remotes like git@host:org/repo.git@branch:subdir are supported — last @ / last : win.)
 # Accept PERF_SCRIPT (singular) as an alias — common Jenkins naming slip.
-# Default points at the working fork until this pack is on wso2/api-platform@main.
-# Prefer setting PERF_SCRIPTS explicitly in the Jenkins job.
+# Defaults to the fork until gateway/perf/performance-test-scripts is merged into wso2/api-platform.
 PERF_SCRIPTS="${PERF_SCRIPTS:-${PERF_SCRIPT:-https://github.com/Milanka00/api-platform.git@main:gateway/perf/performance-test-scripts}}"
 PERF_SCRIPTS_SUBDIR="${PERF_SCRIPTS##*:}"
 _perf_scripts_rest="${PERF_SCRIPTS%:*}"
@@ -258,8 +264,10 @@ export GATEWAY_CONTROLLER_PVC_SIZE="1Gi"
 export GATEWAY_CONTROLLER_SQLITE_PATH="/app/data/gateway.db"
 export GATEWAY_RUNTIME_CPU_LIMIT="4"
 export GATEWAY_RUNTIME_MEM_LIMIT="2Gi"
-export ROUTER_CONCURRENCY="4"
-export GOMAXPROCS="4"
+export ROUTER_CONCURRENCY="${ROUTER_CONCURRENCY:-4}"
+export GOMAXPROCS="${GOMAXPROCS:-4}"
+export GOGC="${GOGC:-400}"
+export GOMEMLIMIT="${GOMEMLIMIT:-1500MiB}"
 export LOG_LEVEL="error"
 export POLICY_ENGINE_METRICS_ENABLED="false"
 
@@ -598,5 +606,21 @@ echo " Performance test complete."
 echo " Summary: ${RESULTS_DIR}/summary.csv"
 echo " Results: ${RESULTS_DIR}/jmeter-results/"
 echo "==================================================================="
+
+# ─── Optional: publish formatted results PR ───────────────────────────────────
+# Set PUBLISH_RESULTS_PR=1 (and GH_TOKEN) on the Jenkins job to open a PR that
+# updates RESULTS_PR_README (default gateway/perf/README.md) in RESULTS_PR_REPO.
+if [[ "${PUBLISH_RESULTS_PR:-0}" == "1" ]]; then
+    echo ""
+    echo "==> Step 16: publish results PR"
+    SUMMARY_CSV="${JENKINS_JOB_WORKSPACE}/summary-${TEST_ID}.csv"
+    [[ -f "${SUMMARY_CSV}" ]] || SUMMARY_CSV="${RESULTS_DIR}/summary.csv"
+    SUMMARY_CSV="${SUMMARY_CSV}" \
+    TEST_ID="${TEST_ID}" \
+    JENKINS_JOB_WORKSPACE="${JENKINS_JOB_WORKSPACE}" \
+        "${SCRIPT_DIR}/publish-results-pr.sh" || {
+            echo "WARNING: publish-results-pr.sh failed (perf run itself succeeded)." >&2
+        }
+fi
 
 # EXIT trap runs cleanup_and_archive → cleanup.sh
